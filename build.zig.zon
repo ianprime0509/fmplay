@@ -1,0 +1,23 @@
+.{
+    .name = .fmplay,
+    .version = "0.0.0",
+    .fingerprint = 0x7100ffbedc7f72e8, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.14.0",
+    .paths = .{
+        "LICENSE",
+        "README.md",
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+    .dependencies = .{
+        .@"98fmplayer" = .{
+            .url = "git+https://github.com/myon98/98fmplayer?ref=master#4fa914e4b2b994cb3ccf92d571a20a7cdf1fe36a",
+            .hash = "N-V-__8AACl0LQCgS58UiKIVpAbkcX6ALLts0DFlSEHFZsxN",
+        },
+        .portaudio = .{
+            .url = "git+https://github.com/allyourcodebase/portaudio?ref=main#f43d4fd1d84aae89d199a82a5a92f85abeebc381",
+            .hash = "portaudio-19.7.0-2-Wv4wb8IrAAAhd1PbjPi-Jg5w1N8GjFXW3cNGySGtc1zk",
+        },
+    },
+}
