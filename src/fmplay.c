@@ -1,6 +1,11 @@
+#include <errno.h>
+#include <setjmp.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <sys/types.h>
+#include <dirent.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <iconv.h>
 
@@ -10,6 +15,8 @@
 #include <common/fmplayer_file.h>
 #include <libopna/opna.h>
 #include <libopna/opnatimer.h>
+
+#include <mc.h>
 
 constexpr int SAMPLE_RATE = 55467;
 
@@ -26,7 +33,7 @@ static const struct option options[] = {
     {},
 };
 
-struct context {
+struct pa_context {
     struct opna_timer *timer;
     struct fmdriver_work *work;
     uint64_t volume;
@@ -45,7 +52,7 @@ int pa_callback(
     (void)input;
     (void)time_info;
     (void)flags;
-    struct context *ctx = userdata;
+    struct pa_context *ctx = userdata;
     int16_t *out = output;
     memset(out, 0, 2 * sizeof(int16_t) * frames);
     opna_timer_mix(ctx->timer, out, frames);
@@ -62,6 +69,82 @@ int pa_callback(
     } else {
         return ctx->work->loop_cnt < ctx->loops ? paContinue : paComplete;
     }
+}
+
+struct mc_sys_context {
+    int cwd;
+    jmp_buf exit_jmp_buf;
+};
+
+static void mc_sys_putc(char c, void *user_data) {
+    (void)user_data;
+    putc(c, stderr);
+}
+
+static void mc_sys_print(const char *mes, void *user_data) {
+    (void)user_data;
+    fprintf(stderr, "%s", mes);
+}
+
+static void *mc_sys_create(const char *filename, void *user_data) {
+    struct mc_sys_context *ctx = user_data;
+    int fd = openat(ctx->cwd, filename, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if (fd == -1) return nullptr;
+    return fdopen(fd, "w");
+}
+
+static void *mc_sys_open(const char *filename, void *user_data) {
+    struct mc_sys_context *ctx = user_data;
+    int fd = openat(ctx->cwd, filename, O_RDONLY);
+    if (fd == -1) return nullptr;
+    return fdopen(fd, "r");
+}
+
+static int mc_sys_close(void *file, void *user_data) {
+    (void)user_data;
+    return fclose(file);
+}
+
+static int mc_sys_read(void *file, void *dest, uint16_t n, uint16_t *read, void *user_data) {
+    (void)user_data;
+    *read = fread(dest, 1, n, file);
+    return ferror(file);
+}
+
+static int mc_sys_write(void *file, void *data, uint16_t n, void *user_data) {
+    (void)user_data;
+    return fwrite(data, 1, n, file) < n;
+}
+
+PMDC_NORETURN static void mc_sys_exit(int status, void *user_data) {
+    struct mc_sys_context *ctx = user_data;
+    longjmp(ctx->exit_jmp_buf, status + 1);
+}
+
+static char *mc_sys_getenv(const char *name, void *user_data) {
+    (void)user_data;
+    return getenv(name);
+}
+
+static const struct mc_sys mc_sys = {
+    .putc = mc_sys_putc,
+    .print = mc_sys_print,
+    .create = mc_sys_create,
+    .open = mc_sys_open,
+    .close = mc_sys_close,
+    .read = mc_sys_read,
+    .write = mc_sys_write,
+    .exit = mc_sys_exit,
+    .getenv = mc_sys_getenv,
+};
+
+static bool is_mml(const char *filename) {
+    size_t len = strlen(filename);
+    return len >= 4 &&
+        filename[len - 4] == '.' &&
+        filename[len - 3] == 'M' &&
+        filename[len - 2] == 'M' &&
+        filename[len - 1] == 'L';
 }
 
 int main(int argc, char **argv) {
@@ -89,7 +172,70 @@ int main(int argc, char **argv) {
         fprintf(stderr, "%s", usage);
         return 1;
     }
-    const char *filename = argv[optind];
+    char *filename = argv[optind];
+
+    if (is_mml(filename)) {
+        char *dirname = nullptr;
+        DIR *dir = nullptr;
+        int dir_fd = AT_FDCWD;
+        char *fsep = strrchr(filename, '/');
+        if (fsep) {
+            *fsep = 0;
+            dirname = filename;
+            filename = fsep + 1;
+            if (!(dir = opendir(dirname))) {
+                fprintf(stderr, "cannot open MML directory: %s\n", strerror(errno));
+                return 1;
+            }
+            if ((dir_fd = dirfd(dir)) == -1) {
+                fprintf(stderr, "cannot open MML directory: %s\n", strerror(errno));
+                closedir(dir);
+                return 1;
+            }
+        }
+
+        struct mc_sys_context mc_sys_ctx = {
+            .cwd = dir_fd,  
+        };
+        struct mc mc;
+        mc.sys = &mc_sys;
+        mc.user_data = &mc_sys_ctx;
+        mc_init(&mc);
+        switch (setjmp(mc_sys_ctx.exit_jmp_buf)) {
+        case 0:
+            mc_main(&mc, filename);
+            break;
+        case 1:
+            if (dirname) {
+                size_t dirname_len = strlen(dirname);
+                size_t m_file_len = strlen(mc.m_filename);
+                filename = malloc(dirname_len + 1 + m_file_len + 1);
+                if (!filename) {
+                    fprintf(stderr, "out of memory\n");
+                    closedir(dir);
+                    return 1;
+                }
+                memcpy(filename, dirname, dirname_len);
+                filename[dirname_len] = '/';
+                memcpy(filename + dirname_len + 1, mc.m_filename, m_file_len);
+                filename[dirname_len + 1 + m_file_len] = 0;
+            } else {
+                filename = strdup(mc.m_filename);
+                if (!filename) {
+                    fprintf(stderr, "out of memory\n");
+                    return 1;
+                }
+            }
+            break;
+        default:
+            fprintf(stderr, "MML compilation failed; cannot play\n");
+            if (dir) closedir(dir);
+            return 1;
+        }
+
+        fprintf(stderr, "Output: %s\n\n", filename);
+        if (dir) closedir(dir);
+    }
 
     enum fmplayer_file_error fmfile_error;
     struct fmplayer_file *fmfile = fmplayer_file_alloc(filename, &fmfile_error);
@@ -145,7 +291,7 @@ int main(int argc, char **argv) {
         printf("\n");
     }
 
-    struct context ctx = {
+    struct pa_context pa_ctx = {
         .timer = &timer,
         .work = &work,
         .volume = 0x1'00000000,
@@ -168,7 +314,7 @@ int main(int argc, char **argv) {
         SAMPLE_RATE,
         paFramesPerBufferUnspecified,
         pa_callback,
-        &ctx);
+        &pa_ctx);
     if (pa_error != paNoError) {
         fprintf(stderr, "cannot open audio stream: %s\n", Pa_GetErrorText(pa_error));
         Pa_Terminate();

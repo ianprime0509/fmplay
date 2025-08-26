@@ -19,5 +19,9 @@
             .url = "git+https://github.com/allyourcodebase/portaudio?ref=main#f43d4fd1d84aae89d199a82a5a92f85abeebc381",
             .hash = "portaudio-19.7.0-2-Wv4wb8IrAAAhd1PbjPi-Jg5w1N8GjFXW3cNGySGtc1zk",
         },
+        .pmdc = .{
+            .url = "git+https://github.com/ianprime0509/pmdc?ref=main#b1fc8332eb9ad8a51372034e539675672d54ad02",
+            .hash = "pmdc-0.0.0-hzvMAnr0AgB2lfjyo3-ncr3DgF7ADx1pxETXfCelFnS_",
+        },
     },
 }

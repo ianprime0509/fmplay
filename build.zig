@@ -9,6 +9,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     }).artifact("portaudio");
+    const pmdmc = libpmdmc(b, target, optimize);
 
     const mod = b.createModule(.{
         .target = target,
@@ -17,6 +18,8 @@ pub fn build(b: *std.Build) void {
     });
     mod.linkLibrary(@"98fmplayer");
     mod.linkLibrary(portaudio);
+    mod.linkLibrary(pmdmc);
+    mod.addCMacro("_POSIX_C_SOURCE", "200809L");
     mod.addCSourceFiles(.{
         .root = b.path("src"),
         .files = &.{
@@ -83,5 +86,39 @@ fn lib98fmplayer(
         .root_module = mod,
     });
     lib.installHeadersDirectory(dep.path("."), "", .{});
+    return lib;
+}
+
+fn libpmdmc(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Step.Compile {
+    const dep = b.dependency("pmdc", .{});
+
+    const mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    mod.addCMacro("lang", b.fmt("{}", .{256 * 'e' + 'n'}));
+    mod.addCSourceFiles(.{
+        .root = dep.path("src/mc"),
+        .files = &.{
+            "mc.c",
+        },
+        .flags = &.{
+            "-Wall",
+            "-Wextra",
+            "-pedantic",
+            "-std=c11",
+        },
+    });
+
+    const lib = b.addLibrary(.{
+        .name = "pmdmc",
+        .root_module = mod,
+    });
+    lib.installHeader(dep.path("src/mc/mc.h"), "mc.h");
     return lib;
 }
