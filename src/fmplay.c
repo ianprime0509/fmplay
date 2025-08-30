@@ -259,14 +259,14 @@ static int compile(char **filename) {
 }
 
 static int play(struct mix_context *ctx) {
-    PaError pa_error;
-    if ((pa_error = Pa_Initialize()) != paNoError) {
-        fprintf(stderr, "cannot initialize audio: %s\n", Pa_GetErrorText(pa_error));
+    PaError err;
+    if ((err = Pa_Initialize()) != paNoError) {
+        fprintf(stderr, "cannot initialize audio: %s\n", Pa_GetErrorText(err));
         return 1;
     }
-    PaStream *pa_stream;
-    pa_error = Pa_OpenDefaultStream(
-        &pa_stream,
+    PaStream *stream;
+    err = Pa_OpenDefaultStream(
+        &stream,
         0,
         2,
         paInt16,
@@ -274,27 +274,30 @@ static int play(struct mix_context *ctx) {
         paFramesPerBufferUnspecified,
         pa_callback,
         ctx);
-    if (pa_error != paNoError) {
-        fprintf(stderr, "cannot open audio stream: %s\n", Pa_GetErrorText(pa_error));
+    if (err != paNoError) {
+        fprintf(stderr, "cannot open audio stream: %s\n", Pa_GetErrorText(err));
         Pa_Terminate();
         return 1;
     }
-    pa_error = Pa_StartStream(pa_stream);
-    if (pa_error != paNoError) {
-        fprintf(stderr, "cannot start audio stream: %s\n", Pa_GetErrorText(pa_error));
-        Pa_CloseStream(pa_stream);
+    PaTime start_time = Pa_GetStreamTime(stream);
+    err = Pa_StartStream(stream);
+    if (err != paNoError) {
+        fprintf(stderr, "cannot start audio stream: %s\n", Pa_GetErrorText(err));
+        Pa_CloseStream(stream);
         Pa_Terminate();
         return 1;
     }
 
-    while (Pa_IsStreamActive(pa_stream) == 1) {
-        printf("\rTimerB: %d %d", ctx->work->timerb, ctx->work->timerb_cnt);
+    while (Pa_IsStreamActive(stream) == 1) {
+        PaTime current_time = Pa_GetStreamTime(stream);
+        int elapsed_time = current_time - start_time;
+        printf("\rPlaying: %d:%02d", elapsed_time / 60, elapsed_time % 60);
         fflush(stdout);
         Pa_Sleep(1'000);
     }
     printf("\n");
 
-    Pa_CloseStream(pa_stream);
+    Pa_CloseStream(stream);
     Pa_Terminate();
     return 0;
 }
