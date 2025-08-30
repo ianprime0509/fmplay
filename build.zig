@@ -28,7 +28,9 @@ pub fn build(b: *std.Build) void {
         .flags = &.{
             "-Wall",
             "-Wextra",
+            "-Werror",
             "-pedantic",
+            "-Wno-unknown-attributes", // due to opnassg.h
             "-std=c23",
         },
     });
