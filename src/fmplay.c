@@ -29,13 +29,15 @@ static const char *usage =
     "  -h, --help           show help\n"
     "  -F, --no-fade        do not fade out at end\n"
     "  -l, --loops=LOOPS    play song LOOPS times (default: 1)\n"
-    "  -o, --output=OUTPUT  write output in WAV format to OUTPUT\n";
+    "  -o, --output=OUTPUT  write output in WAV format to OUTPUT\n"
+    "  -v, --volume=VOLUME  set volume multiplier (default: 1)\n";
 
 static const struct option options[] = {
     { .name = "help", .has_arg = no_argument, .val = 'h' },
     { .name = "no-fade", .has_arg = no_argument, .val = 'F' },
     { .name = "loops", .has_arg = required_argument, .val = 'l' },
     { .name = "output", .has_arg = required_argument, .val = 'o' },
+    { .name = "volume", .has_arg = required_argument, .val = 'v' },
     {},
 };
 
@@ -449,9 +451,10 @@ int main(int argc, char **argv) {
     bool fade = true;
     int loops = 1;
     const char *output = nullptr;
+    double volume = 1.0;
 
     int optchar;
-    while ((optchar = getopt_long(argc, argv, "hFl:o:", options, nullptr)) != -1) {
+    while ((optchar = getopt_long(argc, argv, "hFl:o:v:", options, nullptr)) != -1) {
         switch (optchar) {
         case 'h':
             fprintf(stderr, "%s", usage);
@@ -464,6 +467,9 @@ int main(int argc, char **argv) {
             break;
         case 'o':
             output = optarg;
+            break;
+        case 'v':
+            volume = atof(optarg);
             break;
         default:
             fprintf(stderr, "%s", usage);
@@ -506,7 +512,7 @@ int main(int argc, char **argv) {
     struct mix_context ctx = {
         .timer = &timer,
         .work = &work,
-        .volume = 0x1'00000000,
+        .volume = volume * 0x1'00000000,
         .loops = loops,
         .fadeout_enabled = fade,
     };
